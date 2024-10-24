@@ -1,32 +1,27 @@
 import sqlite3
 from datetime import datetime, timedelta
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, simpledialog 
 
 def create_database():
     conn = sqlite3.connect('library.db')
     cursor = conn.cursor()
     
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS Users (
+    cursor.execute('''CREATE TABLE IF NOT EXISTS Users (
         user_id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT NOT NULL UNIQUE,
         password TEXT NOT NULL
-    )
-    ''')
+    )''')
 
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS Books (
+    cursor.execute('''CREATE TABLE IF NOT EXISTS Books (
         book_id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT NOT NULL,
         author TEXT NOT NULL,
         isbn TEXT NOT NULL,
         available INTEGER NOT NULL
-    )
-    ''')
+    )''')
 
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS BorrowedBooks (
+    cursor.execute('''CREATE TABLE IF NOT EXISTS BorrowedBooks (
         borrow_id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER,
         book_id INTEGER,
@@ -35,8 +30,7 @@ def create_database():
         returned INTEGER,
         FOREIGN KEY (user_id) REFERENCES Users(user_id),
         FOREIGN KEY (book_id) REFERENCES Books(book_id)
-    )
-    ''')
+    )''')
     
     conn.commit()
     conn.close()
@@ -44,7 +38,6 @@ def create_database():
 def insert_sample_data():
     conn = sqlite3.connect('library.db')
     cursor = conn.cursor()
-    
     
     books = [
         ("To Kill a Mockingbird", "Harper Lee", "978-0061120084", 1),
@@ -54,15 +47,11 @@ def insert_sample_data():
         ("Pride and Prejudice", "Jane Austen", "978-1503290563", 1)
     ]
 
-    cursor.executemany('''
-        INSERT INTO Books (title, author, isbn, available)
-        VALUES (?, ?, ?, ?)
-    ''', books)
+    cursor.executemany('''INSERT INTO Books (title, author, isbn, available)
+                          VALUES (?, ?, ?, ?)''', books)
 
     conn.commit()
     conn.close()
-
-
 create_database()
 insert_sample_data()
 
@@ -71,9 +60,8 @@ class LibraryApp:
         self.root = root
         self.root.title("Library Management System")
         self.root.geometry("400x400")
-        self.root.configure(bg="#f0f8ff")  
+        self.root.configure(bg="#f0f8ff") 
 
-       
         self.main_frame = tk.Frame(self.root, bg="#f0f8ff")
         self.main_frame.pack(pady=20)
 
@@ -175,96 +163,86 @@ class LibraryApp:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM Books WHERE available = 1")
         available_books = cursor.fetchall()
-        
-        book_list = "\n".join([f"ID: {book[0]}, Title: {book[1]}, Author: {book[2]}" for book in available_books])
-        
-        if book_list:
-            messagebox.showinfo("Available Books", book_list)
-        else:
-            messagebox.showinfo("Available Books", "No books available at the moment.")
-        
         conn.close()
+
+        book_window = tk.Toplevel(self.root)
+        book_window.title("Available Books")
+
+        canvas = tk.Canvas(book_window)
+        scrollbar = tk.Scrollbar(book_window, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        for book in available_books:
+            book_label = tk.Label(scrollable_frame, text=f"ID: {book[0]}, Title: {book[1]}, Author: {book[2]}", bg="#f0f8ff", fg="#000080")
+            book_label.pack(pady=2)
+
+        if not available_books:
+            messagebox.showinfo("Available Books", "No books available at the moment.")
 
     def borrow_book(self):
-        self.clear_frame(self.user_frame)
-        tk.Label(self.user_frame, text="Borrow a Book", font=("Helvetica", 16, "bold"), bg="#f0f8ff", fg="#4b0082").pack(pady=10)
+        book_id = simpledialog.askinteger("Borrow Book", "Enter Book ID:")
+        if book_id:
+            conn = sqlite3.connect('library.db')
+            cursor = conn.cursor()
+            cursor.execute("SELECT available FROM Books WHERE book_id = ?", (book_id,))
+            book = cursor.fetchone()
 
-        tk.Label(self.user_frame, text="Enter Book ID", bg="#f0f8ff").pack(pady=5)
-        self.book_id_entry = tk.Entry(self.user_frame)
-        self.book_id_entry.pack(pady=5)
-
-        tk.Button(self.user_frame, text="Borrow", command=self.borrow_book_action, bg="#90ee90", font=("Helvetica", 12)).pack(pady=10)
-        tk.Button(self.user_frame, text="Back", command=lambda: self.show_user_menu(self.user_id), bg="#ff7f50", fg="#ffffff", font=("Helvetica", 12)).pack(pady=5)
-
-        self.user_frame.pack(pady=20)
-
-    def borrow_book_action(self):
-        book_id = self.book_id_entry.get()
-        conn = sqlite3.connect('library.db')
-        cursor = conn.cursor()
-
-        cursor.execute("SELECT available FROM Books WHERE book_id = ?", (book_id,))
-        book = cursor.fetchone()
-
-        if book and book[0] == 1:
-            borrow_date = datetime.now().strftime("%Y-%m-%d")
-            return_date = (datetime.now() + timedelta(days=14)).strftime("%Y-%m-%d")
-            cursor.execute("INSERT INTO BorrowedBooks (user_id, book_id, borrow_date, return_date, returned) VALUES (?, ?, ?, ?, 0)", 
-                           (self.user_id, book_id, borrow_date, return_date))
-            cursor.execute("UPDATE Books SET available = 0 WHERE book_id = ?", (book_id,))
-            conn.commit()
-            messagebox.showinfo("Success", f"You have borrowed the book with ID {book_id}. Please return it by {return_date}.")
-        else:
-            messagebox.showerror("Error", "This book is not available.")
-
-        conn.close()
-        self.show_user_menu(self.user_id)
+            if book and book[0] == 1:
+                borrow_date = datetime.now().strftime("%Y-%m-%d")
+                return_date = (datetime.now() + timedelta(days=14)).strftime("%Y-%m-%d")
+                cursor.execute("INSERT INTO BorrowedBooks (user_id, book_id, borrow_date, return_date, returned) VALUES (?, ?, ?, ?, ?)", 
+                               (self.user_id, book_id, borrow_date, return_date, 0))
+                cursor.execute("UPDATE Books SET available = 0 WHERE book_id = ?", (book_id,))
+                conn.commit()
+                messagebox.showinfo("Success", "Book borrowed successfully!")
+            elif book and book[0] == 0:
+                messagebox.showwarning("Warning", "Book is not available.")
+            else:
+                messagebox.showerror("Error", "Book not found.")
+            conn.close()
 
     def return_book(self):
-        self.clear_frame(self.user_frame)
-        tk.Label(self.user_frame, text="Return a Book", font=("Helvetica", 16, "bold"), bg="#f0f8ff", fg="#4b0082").pack(pady=10)
+        book_id = simpledialog.askinteger("Return Book", "Enter Book ID:")
+        if book_id:
+            conn = sqlite3.connect('library.db')
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM BorrowedBooks WHERE user_id = ? AND book_id = ? AND returned = 0", (self.user_id, book_id))
+            borrowed_book = cursor.fetchone()
 
-        tk.Label(self.user_frame, text="Enter Book ID", bg="#f0f8ff").pack(pady=5)
-        self.return_book_entry = tk.Entry(self.user_frame)
-        self.return_book_entry.pack(pady=5)
-
-        tk.Button(self.user_frame, text="Return", command=self.return_book_action, bg="#90ee90", font=("Helvetica", 12)).pack(pady=10)
-        tk.Button(self.user_frame, text="Back", command=lambda: self.show_user_menu(self.user_id), bg="#ff7f50", fg="#ffffff", font=("Helvetica", 12)).pack(pady=5)
-
-        self.user_frame.pack(pady=20)
+            if borrowed_book:
+                cursor.execute("UPDATE BorrowedBooks SET returned = 1 WHERE borrow_id = ?", (borrowed_book[0],))
+                cursor.execute("UPDATE Books SET available = 1 WHERE book_id = ?", (book_id,))
+                conn.commit()
+                messagebox.showinfo("Success", "Book returned successfully!")
+            else:
+                messagebox.showwarning("Warning", "You haven't borrowed this book or it was already returned.")
+            conn.close()
 
     def check_borrowed_books(self):
         conn = sqlite3.connect('library.db')
         cursor = conn.cursor()
-        cursor.execute("SELECT bb.book_id, b.title FROM BorrowedBooks bb JOIN Books b ON bb.book_id = b.book_id WHERE bb.user_id = ? AND bb.returned = 0", (self.user_id,))
+        cursor.execute("SELECT Books.title, Books.author, BorrowedBooks.borrow_date, BorrowedBooks.return_date FROM BorrowedBooks INNER JOIN Books ON BorrowedBooks.book_id = Books.book_id WHERE BorrowedBooks.user_id = ? AND BorrowedBooks.returned = 0", (self.user_id,))
         borrowed_books = cursor.fetchall()
-        
+        conn.close()
+
         if borrowed_books:
-            book_list = "\n".join([f"Book ID: {book[0]}, Title: {book[1]}" for book in borrowed_books])
-            messagebox.showinfo("Your Borrowed Books", book_list)
+            borrowed_window = tk.Toplevel(self.root)
+            borrowed_window.title("Borrowed Books")
+            for book in borrowed_books:
+                tk.Label(borrowed_window, text=f"Title: {book[0]}, Author: {book[1]}, Borrowed on: {book[2]}, Return by: {book[3]}", bg="#f0f8ff").pack(pady=5)
         else:
-            messagebox.showinfo("Your Borrowed Books", "You have no borrowed books.")
-
-        conn.close()
-
-    def return_book_action(self):
-        book_id = self.return_book_entry.get()
-        conn = sqlite3.connect('library.db')
-        cursor = conn.cursor()
-        
-        cursor.execute("SELECT book_id FROM BorrowedBooks WHERE user_id = ? AND book_id = ? AND returned = 0", (self.user_id, book_id))
-        book = cursor.fetchone()
-
-        if book:
-            cursor.execute("UPDATE BorrowedBooks SET returned = 1 WHERE book_id = ? AND user_id = ?", (book_id, self.user_id))
-            cursor.execute("UPDATE Books SET available = 1 WHERE book_id = ?", (book_id,))
-            conn.commit()
-            messagebox.showinfo("Success", f"You have successfully returned the book with ID {book_id}.")
-        else:
-            messagebox.showerror("Error", "You haven't borrowed this book or it has already been returned.")
-
-        conn.close()
-        self.show_user_menu(self.user_id)
+            messagebox.showinfo("Borrowed Books", "You have no borrowed books.")
 
 if __name__ == "__main__":
     root = tk.Tk()
